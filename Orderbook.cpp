@@ -22,31 +22,104 @@ struct PriceLevel{
 
 };
 
-void add_order(PriceLevel* level, node* new_order){
+void add_order(PriceLevel* level, node* order){
 
-    new_order->left = level->tail;
-    new_order->right = nullptr;
-
+    //if the current price level is empty
     if(level->head==nullptr){
-        level->head = new_order;
-        level->tail = new_order;
+        level->head = order;
+        level->tail = order;
+        order->left = nullptr;
+        order->right = nullptr;
     }
+    //if there are already orders 
     else{
-        level->tail->right = new_order;
-        level->tail = new_order;
+        order->left = level->tail;
+        order->right = nullptr;
+        level->tail->right = order;
+        level->tail = order;
     }
+   
+    level->total_quantity+=order->quantity;
 
-    level->total_quantity+=new_order->quantity;
 }
 
+void remove_order(PriceLevel* level, node* order){
 
+    if(level->head==nullptr || order==nullptr) return;
+    //if the target we are looking for is the head
+    if(order->order_id==level->head->order_id){
+        if(level->head->right){
+            level->head = level->head->right;
+            level->head->left = nullptr;
+        }
+        else{
+            level->head = nullptr;
+            level->tail = nullptr;
+        }
+        order->left = nullptr;
+        order->right = nullptr;
+        level->total_quantity-=order->quantity;
+        return;
+        
+    }
+    else{
+        //the target is in the middle or at the end
+        //i know the head is not the target
+        node* temp = level->head->right;
+        node* prev = level->head;
+
+        while(temp!=nullptr){
+            if(temp->order_id==order->order_id){
+                prev->right = temp->right;
+                if(temp->right){
+                    temp->right->left = prev;
+                }
+                //if there is no element to the right, we are at the tail
+                else{
+                   
+                    level->tail = prev;
+                }
+                temp->left = nullptr;
+                temp->right = nullptr;
+                level->total_quantity-=order->quantity;
+                break;
+
+            }
+            prev = temp;
+            temp = temp->right;
+        }
+    }
+    
+}
 
 
 
 int main(){
 
+    PriceLevel* level = new PriceLevel(108.50);
+    node* order1 = new node;
+    order1->order_id = 1;
+    order1->quantity = 200;
+    order1->price = 108.50;
+    order1->is_buy = true;
+
+    node* order2 = new node;
+    order2->order_id = 2;
+    order2->quantity = 300;
+    order2->price = 108.50;
+    order2->is_buy = false;
+
+    add_order(level, order1);
+    add_order(level, order2);
     
-    
+    auto head = level->head;
+    while(head!=nullptr){
+        std::cout<<head->quantity<<"\n";
+        head = head->right;
+    }
+    delete level;
+    delete order1;
+    delete order2;
 
     return 0;
 }
