@@ -43,53 +43,53 @@ void add_order(PriceLevel* level, node* order){
 
 }
 
-void remove_order(PriceLevel* level, node* order){
+void removeorder(PriceLevel* level, node* order){
 
-    if(level->head==nullptr || order==nullptr) return;
-    //if the target we are looking for is the head
-    if(order->order_id==level->head->order_id){
-        if(level->head->right){
-            level->head = level->head->right;
-            level->head->left = nullptr;
-        }
-        else{
+    // the level or the order are null
+    if(level==nullptr || order==nullptr ||level->head==nullptr) return;
+
+    if(level->head->order_id==order->order_id){
+        if(level->head->right==nullptr){
             level->head = nullptr;
             level->tail = nullptr;
+            
         }
-        order->left = nullptr;
-        order->right = nullptr;
-        level->total_quantity-=order->quantity;
-        return;
-        
+        else{
+            level->head = level->head->right;
+            level->head->left = nullptr;
+            
+        }
     }
     else{
-        //the target is in the middle or at the end
-        //i know the head is not the target
-        node* temp = level->head->right;
+        node* curr = level->head->right;
         node* prev = level->head;
+        bool found = false;
 
-        while(temp!=nullptr){
-            if(temp->order_id==order->order_id){
-                prev->right = temp->right;
-                if(temp->right){
-                    temp->right->left = prev;
+        while(curr!=nullptr){
+            if(curr->order_id==order->order_id){
+                prev->right = curr->right;
+                if(curr->right){
+                    curr->right->left = prev;
                 }
-                //if there is no element to the right, we are at the tail
                 else{
-                   
                     level->tail = prev;
                 }
-                temp->left = nullptr;
-                temp->right = nullptr;
-                level->total_quantity-=order->quantity;
+                found = true;
                 break;
+                
 
             }
-            prev = temp;
-            temp = temp->right;
+            prev = curr;
+            curr = curr->right;
+            
         }
     }
-    
+
+    level->total_quantity-=order->quantity;
+    order->left = nullptr;
+    order->right = nullptr;
+    delete order;
+
 }
 
 
