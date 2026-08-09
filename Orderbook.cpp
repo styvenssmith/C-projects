@@ -40,8 +40,8 @@ enum class OrderSide{
     };
 
 enum class OrderType{
-    //0, 1, 2
-    REGULAR, IOC, FOK
+    //0, 1, 2, 3
+    LIMIT, IOC, FOK, MARKET
 };
 
 
@@ -73,7 +73,7 @@ class LimitOrderBook{
     /*
         1. type = are you a buyer or a seller
     */
-    void match_orders(int qty,double price, bool is_buy){
+    int match_orders(int qty,double price, bool is_buy){
         //match all orders 
         /*
             type = 0 = buy 
@@ -90,6 +90,12 @@ class LimitOrderBook{
                     if(qty>=level->total_quantity){
                         //update the quantity, we remove the entire price level
                         qty-=level->total_quantity;
+                        Order* temp = level->head;
+                        while(temp){
+                            Order* next = temp->right;
+                            delete temp;
+                            temp = next;
+                        }
                         delete level; //frees the memory
                         it = asks.erase(it); //returns the next iterator
                         
@@ -140,18 +146,70 @@ class LimitOrderBook{
 
         }
         else{
+            auto it = bids.begin();
+
+            while(it!=bids.end() && it->first>=price && qty>0){
+
+                
+                auto level = it->second;
+
+                //we ingest the entire level
+                if(qty>=level->total_quantity){
+                    qty-=level->total_quantity;
+                    Order* temp = level->head;
+                    while(temp){
+                        Order* next = temp->right;
+                        delete temp;
+                        temp = next;
+                    }
+                    delete level;
+                    it = bids.erase(it);
+                }
+                else{
+                    Order* temp = level->head;
+                    Order* next_order = nullptr;
+
+                    while(temp!=nullptr && qty>0){
+
+                        next_order = temp->right;
+
+                        if(qty<temp->quantity){
+                            temp->quantity-=qty;
+                            level->total_quantity-=qty;
+                            qty = 0;
+                        }
+                        else{
+                            
+                            level->total_quantity-=temp->quantity;
+                            qty-=temp->quantity;
+                            level->head = next_order;
+                            if(next_order){
+                                next_order->left = nullptr;
+                            }
+                            else{
+                                level->tail = nullptr;
+                            }
+                            delete temp;
+                            
+                        }
+                        temp = next_order;
+                    }
+                }
+
+            }
 
         }
+        return qty;
     }
 
     //matching orders in the background (limit orders)
-    void match_orders(){
+    void matching_orders(){
 
     }
     //Fill as much of my order as you can and cancel what you cant
     //start 
     void immediate_cancel(int qty, double p, bool is_buy){
-        
+        match_orders(qty, p, is_buy);
 
     }
 
@@ -169,12 +227,25 @@ class LimitOrderBook{
         int order_val = static_cast<int>(type);
         //Immediate or cancel
         if(order_val==1){
+            //IOC
             immediate_cancel(qty,p, is_buy);
         }
-        else{
+        else if (order_val==2){
+            //FOK
             fill_kill(qty, p, is_buy);
         }
+        else if(order_val==0){
+            //regular limit order
+            qty = match_orders(qty, p, is_buy);
+            if(qty>0){
+                add_order(id, qty, p, is_buy);
+            }
+        }
+        else{
+            //market order
+        }
     }
+
     void add_order(int id, int qty, double p, bool is_buy){
 
         
