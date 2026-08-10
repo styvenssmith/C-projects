@@ -2,6 +2,7 @@
 #include <map>
 #include <unordered_map>
 #include <memory>
+#include <random>
 
 /*
 buy
@@ -132,18 +133,15 @@ class LimitOrderBook{
                                 else{
                                     level->tail = nullptr;
                                 }
-                                
+                                level->head = next_order;
                                 delete temp;
-
-                            }
-                            temp = next_order;
-                        }
+                                temp = next_order;
                         
-                    }
-                
+                            }
+                            
+                        }   
+                    }   
             }
-
-
         }
         else{
             auto it = bids.begin();
@@ -182,17 +180,21 @@ class LimitOrderBook{
                             
                             level->total_quantity-=temp->quantity;
                             qty-=temp->quantity;
-                            level->head = next_order;
+
+                            
                             if(next_order){
                                 next_order->left = nullptr;
                             }
                             else{
                                 level->tail = nullptr;
                             }
+                            level->head = next_order;
                             delete temp;
+                            temp = next_order;
+
                             
                         }
-                        temp = next_order;
+                        
                     }
                 }
 
@@ -202,10 +204,126 @@ class LimitOrderBook{
         return qty;
     }
 
-    //matching orders in the background (limit orders)
-    void matching_orders(){
 
+
+    //matching orders in the background (limit orders)
+    void market_order(int qty, bool is_buy){
+        //check the ask map
+        if(is_buy){
+            auto it = asks.begin();
+            
+            while(it!=asks.end() && qty>0){
+                auto level = it->second;
+                //delete the entire level
+                if(qty>=level->total_quantity){
+                    qty-=level->total_quantity;
+
+                    auto temp = level->head;
+                    while(temp!=nullptr){
+                        Order*next = temp->right;
+                        delete temp;
+                        temp = next;
+                    }
+                    delete level;
+                    it = asks.erase(it);
+                }
+                else{
+
+                    Order* temp = level->head;
+                    Order* next_order = nullptr;
+                    while(temp!=nullptr && qty>0){
+
+                        next_order = temp->right;
+
+                        if(qty<temp->quantity){
+                            temp->quantity-=qty;
+                            level->total_quantity-=qty;
+                            qty = 0;
+                            
+
+                        }
+                        else{
+                            
+                            level->total_quantity-=temp->quantity;
+                            qty-=temp->quantity;
+
+                            if(next_order==nullptr){
+                                level->tail = nullptr;
+                            }
+                            else{
+                                next_order->left = nullptr;
+                            }
+                            level->head = next_order;
+                            delete temp;
+                            temp = next_order;
+                            
+                        }
+                        
+
+                    }
+                    
+                }
+            }
+        }
+        //check the bid map
+        else{
+
+            auto it = bids.begin();
+
+            if(it==bids.end()) return;
+
+            while(it!=bids.end() && qty>0){
+
+                auto level = it->second;
+                
+                if(level->total_quantity<=qty){
+                    Order* temp = level->head;
+
+                    while(temp!=nullptr){
+                        Order* t = temp->right;
+                        delete temp;
+                        temp = t;
+                    }
+                    delete level;
+                    it = bids.erase(it);
+                }
+                else{
+                    Order* temp = level->head;
+                    Order* next_order = nullptr;
+
+                    while(temp!=nullptr && qty>0){
+                        next_order = temp->right;
+                        
+                        if(qty<=temp->quantity){
+                            temp->quantity-=qty;
+                            level->total_quantity-=qty;
+                            qty = 0;
+
+                        }
+                        else{
+
+                            qty-=temp->quantity;
+                            level->total_quantity-=temp->quantity;
+
+                            if(next_order==nullptr){
+                                level->tail = nullptr;
+                            }
+                            else{
+                                next_order->left = nullptr;
+                            }
+                            level->head = next_order;
+                            delete temp;
+                            temp = next_order;
+                        }
+                        
+                        
+                    }
+                }
+            }
+        }
     }
+
+
     //Fill as much of my order as you can and cancel what you cant
     //start 
     void immediate_cancel(int qty, double p, bool is_buy){
@@ -243,6 +361,8 @@ class LimitOrderBook{
         }
         else{
             //market order
+            market_order(qty, is_buy);
+
         }
     }
 
@@ -333,51 +453,7 @@ class LimitOrderBook{
 };
 
 
-
-#include <random>
-
 int main()
 {
-    LimitOrderBook lob;
-std::mt19937 rng(42);
 
-// Order quantities
-std::uniform_int_distribution<int> qty_dist(1, 1000);
-
-// Price random walk
-double current_price = 100.0;
-std::normal_distribution<double> step_dist(0.0, 0.15);  // Mean 0, std dev 15 cents
-double drift = 0.0005;  // Tiny upward bias
-
-// Side distribution (buy/sell)
-std::bernoulli_distribution side_dist(0.5);
-
-for (int id = 1; id <= 50000000; ++id)
-{
-    // Random step with drift
-    double step = step_dist(rng) + drift;
-    current_price += step;
-    
-    // Keep price in a realistic range
-    if (current_price < 0.01) current_price = 0.01;
-    if (current_price > 1000.0) current_price = 1000.0;
-    
-    // Round to nearest cent (optional, for realistic prices)
-    current_price = std::round(current_price * 100.0) / 100.0;
-    
-    lob.add_order(
-        id,
-        qty_dist(rng),
-        current_price,
-        side_dist(rng)
-    );
-}
-    std::uniform_int_distribution<int> cancel_dist(1, 1000);
-
-for (int i = 0; i < 300; ++i)
-{
-    int id = cancel_dist(rng);
-
-    lob.cancel_order(id);
-}
 }
