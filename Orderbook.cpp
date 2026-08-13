@@ -4,12 +4,55 @@
 #include <memory>
 #include <random>
 
+
+std::default_random_engine rng(std::random_device{}());
+
+
+
+
+
 /*
 buy
 
 */
+enum class OrderSide{
+    BUY, SELL
+    //0, 1
+    };
+
+enum class OrderType{
+    //0, 1, 2, 3
+    LIMIT, IOC, FOK, MARKET, STOP_MARKET
+};
 
 struct PriceLevel;
+
+struct GeneratedOrder
+{
+    int id;
+    int quantity;
+    double price;
+    /*
+    double trigger_price;
+    double limit_price;
+    */
+    bool is_buy;
+    OrderType type;
+
+    GeneratedOrder(
+        int id_,
+        int qty_,
+        double price_,
+        bool buy_,
+        OrderType type_)
+        :
+        id(id_),
+        quantity(qty_),
+        price(price_),
+        is_buy(buy_),
+        type(type_)
+    {}
+};
 
 struct Order{
     int order_id; //this is the ID for the order, each order will have one
@@ -24,6 +67,7 @@ struct Order{
     Order():order_id(0),quantity(0), price(0.0),is_buy(false),left(nullptr),right(nullptr), level(nullptr){}
 };
 
+
 struct PriceLevel{
 
     double price; //current price level
@@ -35,19 +79,11 @@ struct PriceLevel{
 
 };
 
-enum class OrderSide{
-    BUY, SELL
-    //0, 1
-    };
-
-enum class OrderType{
-    //0, 1, 2, 3
-    LIMIT, IOC, FOK, MARKET
-};
-
 
 class LimitOrderBook{
     private:
+    //vector to keep track of the stop orders
+    std::vector<GeneratedOrder> stop_orders;
     //bids: highest price first
     std::map<double, PriceLevel*, std::greater<double>>bids;
     //asks
@@ -69,8 +105,7 @@ class LimitOrderBook{
         }
     }
 
-
-    //matching market orders
+    //matching limit orders
     /*
         1. type = are you a buyer or a seller
     */
@@ -126,7 +161,7 @@ class LimitOrderBook{
                             else{
                                 qty-=temp->quantity;
                                 level->total_quantity-=temp->quantity;
-                                level->head = next_order;
+                                
                                 if(next_order!=nullptr){
                                     next_order->left = nullptr;
                                 }
@@ -205,7 +240,6 @@ class LimitOrderBook{
     }
 
 
-
     //matching orders in the background (limit orders)
     void market_order(int qty, bool is_buy){
         //check the ask map
@@ -240,7 +274,6 @@ class LimitOrderBook{
                             level->total_quantity-=qty;
                             qty = 0;
                             
-
                         }
                         else{
                             
@@ -259,7 +292,6 @@ class LimitOrderBook{
                             
                         }
                         
-
                     }
                     
                 }
@@ -316,7 +348,6 @@ class LimitOrderBook{
                             temp = next_order;
                         }
                         
-                        
                     }
                 }
             }
@@ -333,11 +364,27 @@ class LimitOrderBook{
 
     //
     void fill_kill(int qty, double p, bool is_buy){
-        if(is_buy){
+        int available = 0;
 
+        if(is_buy){
+            auto it = asks.begin();
+            while(it!=asks.end() && it->first<=p){
+                available+=it->second->total_quantity;
+                it++;
+            }
+            if(available>=qty){
+                match_orders(qty, p,is_buy);
+            }
         }
         else{
-
+            auto it = bids.begin();
+            while(it!=bids.end() && it->first>=p){
+                available+=it->second->total_quantity;
+                it++;
+            }
+            if(available>=qty){
+                match_orders(qty, p,is_buy);
+            }
         }
     }
 
@@ -449,11 +496,129 @@ class LimitOrderBook{
         delete order;
     }
 
+    void print_book()
+{
+    std::cout << "\n========== ORDER BOOK ==========\n";
+
+    std::cout << "\nASKS\n";
+
+    for (const auto& [price, level] : asks)
+    {
+        std::cout << price
+                  << " | total: "
+                  << level->total_quantity
+                  << " | orders: ";
+
+        Order* temp = level->head;
+
+        while (temp != nullptr)
+        {
+            std::cout << "[ID " << temp->order_id
+                      << ", QTY " << temp->quantity
+                      << "] ";
+
+            temp = temp->right;
+        }
+
+        std::cout << "\n";
+    }
+
+    std::cout << "\nBIDS\n";
+
+    for (const auto& [price, level] : bids)
+    {
+        std::cout << price
+                  << " | total: "
+                  << level->total_quantity
+                  << " | orders: ";
+
+        Order* temp = level->head;
+
+        while (temp != nullptr)
+        {
+            std::cout << "[ID " << temp->order_id
+                      << ", QTY " << temp->quantity
+                      << "] ";
+
+            temp = temp->right;
+        }
+
+        std::cout << "\n";
+    }
+
+    std::cout << "================================\n";
+}
+
+
+    double random_price(double &price, std::default_random_engine& rng){
+        
+        double tick = 0.25;
+
+        std::normal_distribution<double>d(0.0, 1);
+        
+        int tick_change = static_cast<int>(std::round(d(rng)));
+        price+=tick_change*tick;
+        price = std::max(price, tick);
+        return price;
+        
+    }
+
+    OrderType random_order_type(std::default_random_engine& rng){
+       
+        std::uniform_int_distribution<int>d(0,99);
+        
+        int x = d(rng);
+
+        if(x<70) return OrderType::LIMIT;
+        if(x<80) return OrderType::MARKET;
+        if(x<88) return OrderType::IOC;
+        if(x<93) return OrderType::FOK;
+
+        return OrderType::STOP_MARKET;
+    }
+
+    int random_quantity(std::default_random_engine& rng){
+        
+        std::uniform_int_distribution<int>d(100, 1000);
+        return d(rng);
+        
+    }
+
+    bool random_side(std::default_random_engine & rng){
+        
+        std::bernoulli_distribution d(0.5);
+        return d(rng);
+    }
+
+    void check_stop_orders(double last_trade_price){
+
+        for(auto it = stop_orders.begin(); it!=stop_orders.end();){
+            bool triggered = 
+            (it->is_buy && last_trade_price>=it->price)||(!it->is_buy && last_trade_price<=it->price);
+
+
+
+        }
+    }
 
 };
 
 
 int main()
 {
+    LimitOrderBook book;
 
+    double current_price = 100;
+
+    for(int i = 0;i<10000000;i++){
+        GeneratedOrder order(i, book.random_quantity(rng), book.random_price(current_price,rng), book.random_side(rng), book.random_order_type(rng));
+        book.add_order(order.id, order.quantity, order.price, order.is_buy, order.type);
+        if(i%500==0){
+            book.print_book();
+        }
+
+    }
+    
+
+   
 }
