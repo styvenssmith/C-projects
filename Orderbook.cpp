@@ -3,7 +3,7 @@
 #include <unordered_map>
 #include <memory>
 #include <random>
-
+#include <array>
 
 std::default_random_engine rng(std::random_device{}());
 
@@ -21,8 +21,8 @@ enum class OrderSide{
     };
 
 enum class OrderType{
-    //0, 1, 2, 3
-    LIMIT, IOC, FOK, MARKET, STOP_MARKET
+    //0, 1, 2, 3, 4
+    LIMIT, IOC, FOK, MARKET, STOP_MARKET, STOP_LIMIT
 };
 
 struct PriceLevel;
@@ -388,28 +388,35 @@ class LimitOrderBook{
         }
     }
 
-    void add_order(int id, int qty, double p, bool is_buy, OrderType type){
-        int order_val = static_cast<int>(type);
+    void add_order(GeneratedOrder &order){
+
+ 
         //Immediate or cancel
-        if(order_val==1){
+        if(order.type==OrderType::IOC){
             //IOC
-            immediate_cancel(qty,p, is_buy);
+            immediate_cancel(order.quantity ,order.price, order.is_buy);
         }
-        else if (order_val==2){
+        else if (order.type==OrderType::FOK){
             //FOK
-            fill_kill(qty, p, is_buy);
+            fill_kill(order.quantity, order.price, order.is_buy);
         }
-        else if(order_val==0){
+        else if(order.type==OrderType::LIMIT){
             //regular limit order
-            qty = match_orders(qty, p, is_buy);
+            int qty = match_orders(order.quantity, order.price, order.is_buy);
             if(qty>0){
-                add_order(id, qty, p, is_buy);
+                add_order(order.id, order.quantity, order.price, order.is_buy);
             }
         }
-        else{
+        else if(order.type==OrderType::STOP_MARKET){
+            stop_orders.push_back(order);
+        }
+        else if (order.type==OrderType::MARKET){
             //market order
-            market_order(qty, is_buy);
+            market_order(order.quantity, order.is_buy);
 
+        }
+        else if(order.type==OrderType::STOP_LIMIT){
+            stop_orders.push_back(order);
         }
     }
 
@@ -458,7 +465,7 @@ class LimitOrderBook{
    
         level->total_quantity+=order->quantity;
         order_map[id] = order;
-        std::cout<<"Added order"<<" "<<((is_buy)?"buy":"sell")<<" id:"<<id<<" "<<"there are "<<qty<<" shares at "<<p<<"\n";
+        //std::cout<<"Added order"<<" "<<((is_buy)?"buy":"sell")<<" id:"<<id<<" "<<"there are "<<qty<<" shares at "<<p<<"\n";
 
 }
     void cancel_order(int id){
@@ -491,7 +498,7 @@ class LimitOrderBook{
         }
 
         level->total_quantity-=order->quantity;
-        std::cout<<"Erased order"<<" "<<id<<"\n";
+        //std::cout<<"Erased order"<<" "<<id<<"\n";
         order_map.erase(it);
         delete order;
     }
@@ -563,20 +570,23 @@ class LimitOrderBook{
         
     }
 
+    //determining the different orders we need to generate
     OrderType random_order_type(std::default_random_engine& rng){
        
         std::uniform_int_distribution<int>d(0,99);
         
         int x = d(rng);
 
-        if(x<70) return OrderType::LIMIT;
-        if(x<80) return OrderType::MARKET;
-        if(x<88) return OrderType::IOC;
-        if(x<93) return OrderType::FOK;
+        if(x<65) return OrderType::LIMIT;
+        if(x<70) return OrderType::MARKET;
+        if(x<80) return OrderType::IOC;
+        if(x<90) return OrderType::FOK;
+        if(x<95) return OrderType::STOP_LIMIT;
 
         return OrderType::STOP_MARKET;
     }
 
+    //how much do you want to buy
     int random_quantity(std::default_random_engine& rng){
         
         std::uniform_int_distribution<int>d(100, 1000);
@@ -584,21 +594,77 @@ class LimitOrderBook{
         
     }
 
+    //are you a buyer or a seller
     bool random_side(std::default_random_engine & rng){
         
         std::bernoulli_distribution d(0.5);
         return d(rng);
     }
 
+    //stop market orders
     void check_stop_orders(double last_trade_price){
 
         for(auto it = stop_orders.begin(); it!=stop_orders.end();){
             bool triggered = 
             (it->is_buy && last_trade_price>=it->price)||(!it->is_buy && last_trade_price<=it->price);
 
-
+            if(triggered && it->type==OrderType::STOP_MARKET){
+                market_order(it->quantity, it->is_buy);
+                it = stop_orders.erase(it);
+            }
+            else if(triggered && it->type==OrderType::STOP_LIMIT){
+                int qty = match_orders(it->quantity, it->price, it->is_buy);
+                if(qty>0){
+                    add_order(it->id, it->quantity, it->price, it->is_buy);
+                }
+                it = stop_orders.erase(it);
+            }
+            else{
+                ++it;
+            }
 
         }
+    }
+
+    double mid_price(){
+        if(!asks.empty() && !bids.empty()){
+            return (asks.begin()->first+bids.begin()->first)/2.0;
+        }
+        return 0.0;
+    }
+
+    double spread() {
+        if (!asks.empty() && !bids.empty()) {
+            return asks.begin()->first - bids.begin()->first;
+        }
+        return 0.0;
+}   
+
+    std::pair<double, double> vwap(){
+
+        if(asks.empty() || bids.empty()) return {0.0, 0.0};
+
+        double ask_vwap = 0;
+        double bid_vwap = 0;
+        int count = 0;
+        int ask_quantity = 0;
+        int bids_quantity = 0;
+        for(auto it = asks.begin();count<5&& it!=asks.end() ;){
+            ask_vwap+=(it->first*it->second->total_quantity);
+            count++;
+            ask_quantity+=it->second->total_quantity;
+            it++;
+        }
+        
+        count = 0;
+        for(auto it = bids.begin();count<5 && it!=bids.end() ;){
+            bid_vwap+=(it->first*it->second->total_quantity);
+            count++;
+            bids_quantity+=it->second->total_quantity;
+            it++;
+        }
+        
+        return {ask_vwap/ask_quantity,bid_vwap/bids_quantity };
     }
 
 };
@@ -610,14 +676,26 @@ int main()
 
     double current_price = 100;
 
+    std::vector<GeneratedOrder>orders;
+    orders.reserve(10000000);
+
     for(int i = 0;i<10000000;i++){
         GeneratedOrder order(i, book.random_quantity(rng), book.random_price(current_price,rng), book.random_side(rng), book.random_order_type(rng));
-        book.add_order(order.id, order.quantity, order.price, order.is_buy, order.type);
-        if(i%500==0){
-            book.print_book();
-        }
-
+        orders.emplace_back(order);
     }
+
+    auto start = std::chrono::steady_clock::now();
+
+    for(auto& order_:orders){
+        book.add_order(order_);
+    }
+
+    auto end = std::chrono::steady_clock::now();
+
+    std::cout << std::chrono::duration<double, std::micro>(end - start).count()
+          << " microseconds\n";
+
+
     
 
    
